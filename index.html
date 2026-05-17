@@ -72,7 +72,14 @@
       font-variant-numeric: tabular-nums;
       padding: 2px 0;
       flex: 0 0 auto;
+      word-break: break-word;
+      max-height: 5.5em;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      line-height: 1.35;
     }
+    .pending::-webkit-scrollbar { width: 4px; }
+    .pending::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
 
     .words {
       flex: 1 1 auto;
@@ -295,11 +302,13 @@
   // Flag semantics:
   //   replaceOnNextDigit = display is showing a "result" (running total after an op,
   //   or the final result after =). Next digit press REPLACES display rather than appending.
+  //   expression = running paper-trail string of the whole chain, shown above digits.
   const state = {
     display: '0',
     stored: null,                // BigInt left operand, or null
     op: null,                    // '+' | '−' | '×' | '÷' | null  (button-form minus)
     replaceOnNextDigit: false,
+    expression: '',
     error: null
   };
 
@@ -313,12 +322,24 @@
     return BigInt(state.display);
   }
 
+  function compute(a, op, b) {
+    switch (op) {
+      case '+': return a + b;
+      case '−': return a - b;
+      case '×': return a * b;
+      case '÷':
+        if (b === 0n) { const e = new Error('div_zero'); e.code = 'div_zero'; throw e; }
+        return a / b;
+    }
+    throw new Error('bad_op');
+  }
+
   function render() {
     if (state.error) {
       digitsEl.textContent = state.error;
       digitsEl.className = 'digits error';
       wordsBody.textContent = '—';
-      pendingEl.textContent = '';
+      pendingEl.textContent = state.expression;
       opButtons.forEach(b => b.classList.remove('armed'));
       return;
     }
@@ -334,18 +355,19 @@
     digitsEl.className = cls;
 
     wordsBody.textContent = bigIntToWords(big);
+    pendingEl.textContent = state.expression;
+    // Auto-scroll the expression to the right end so the newest part is visible
+    pendingEl.scrollLeft = pendingEl.scrollWidth;
+    pendingEl.scrollTop = pendingEl.scrollHeight;
 
-    if (state.op && state.stored !== null) {
-      pendingEl.textContent = formatDigits(state.stored) + ' ' + state.op;
-    } else {
-      pendingEl.textContent = '';
-    }
     opButtons.forEach(b => b.classList.toggle('armed', b.dataset.op === state.op));
   }
 
   function inputDigit(d) {
     if (state.error) clearAll();
     if (state.replaceOnNextDigit) {
+      // If we're showing a final answer (= already pressed, no pending op), this digit starts a fresh calc
+      if (state.op === null) state.expression = '';
       state.display = d;
       state.replaceOnNextDigit = false;
     } else if (state.display === '0') {
@@ -361,17 +383,32 @@
   function inputOp(op) {
     if (state.error) return;
     // op is always in button form: '+', '−', '×', '÷'
-    if (state.op && state.stored !== null && !state.replaceOnNextDigit) {
-      // We have a fresh right operand → chain-evaluate first
-      const ok = evaluate();
-      if (!ok) return;
-      // evaluate() leaves display=result, stored=null, op=null, replaceOnNextDigit=true
+    if (state.op === null) {
+      // First op of a fresh chain — or right after an = (in which case expression was kept as paper trail; clear it now)
+      if (state.replaceOnNextDigit) state.expression = '';
+      state.expression = formatDigits(currentBigInt()) + ' ' + op;
+      state.stored = currentBigInt();
+      state.op = op;
+      state.replaceOnNextDigit = true;
+    } else if (state.replaceOnNextDigit) {
+      // Swapping operator without a new right operand — just rewrite the trailing op in the expression
+      state.expression = state.expression.replace(/\s+[+−×÷]\s*$/, '') + ' ' + op;
+      state.op = op;
+    } else {
+      // Chain: compute current pair, append to expression, continue with new op
+      const right = currentBigInt();
+      let result;
+      try { result = compute(state.stored, state.op, right); }
+      catch (e) {
+        state.error = e.code === 'div_zero' ? "can't ÷ by zero" : 'error';
+        render(); return;
+      }
+      state.expression += ' ' + formatDigits(right) + ' ' + op;
+      state.display = result.toString();
+      state.stored = result;
+      state.op = op;
+      state.replaceOnNextDigit = true;
     }
-    // Stash current display as the left operand for the new op.
-    // If the user is just swapping operators (e.g., pressed + then ×), this just rewrites op.
-    state.stored = currentBigInt();
-    state.op = op;
-    state.replaceOnNextDigit = true;
     render();
   }
 
@@ -381,26 +418,19 @@
       render();
       return true;
     }
-    const a = state.stored;
     // If user hits = right after an op (no new right operand typed), repeat the left operand: 4+= → 8
-    const b = state.replaceOnNextDigit ? state.stored : currentBigInt();
+    const right = state.replaceOnNextDigit ? state.stored : currentBigInt();
     let result;
-    try {
-      switch (state.op) {
-        case '+': result = a + b; break;
-        case '−': result = a - b; break;
-        case '×': result = a * b; break;
-        case '÷':
-          if (b === 0n) { state.error = "can't ÷ by zero"; render(); return false; }
-          result = a / b; // BigInt truncating division
-          break;
-        default: return false;
-      }
-    } catch (e) {
-      state.error = 'error';
-      render();
-      return false;
+    try { result = compute(state.stored, state.op, right); }
+    catch (e) {
+      state.error = e.code === 'div_zero' ? "can't ÷ by zero" : 'error';
+      render(); return false;
     }
+    // Finalize the paper trail: append the right operand (if it was freshly typed) and '='
+    if (!state.replaceOnNextDigit) {
+      state.expression += ' ' + formatDigits(right);
+    }
+    state.expression += ' =';
     state.display = result.toString();
     state.stored = null;
     state.op = null;
@@ -414,6 +444,7 @@
     state.stored = null;
     state.op = null;
     state.replaceOnNextDigit = false;
+    state.expression = '';
     state.error = null;
     render();
   }
@@ -421,9 +452,11 @@
   function backspace() {
     if (state.error) { clearAll(); return; }
     if (state.replaceOnNextDigit) {
-      // Showing a result — backspace wipes it back to fresh entry but keeps any pending op
+      // Showing a result — wipe display back to 0. Keep expression as paper trail.
       state.display = '0';
       state.replaceOnNextDigit = false;
+      // If this was a final answer (no pending op), also clear the paper trail
+      if (state.op === null) state.expression = '';
       render();
       return;
     }
@@ -438,6 +471,8 @@
   function negate() {
     if (state.error) return;
     if (state.display === '0') return;
+    // Negating a final answer counts as starting a fresh entry — drop the old paper trail
+    if (state.replaceOnNextDigit && state.op === null) state.expression = '';
     if (state.display.startsWith('-')) state.display = state.display.slice(1);
     else state.display = '-' + state.display;
     state.replaceOnNextDigit = false;

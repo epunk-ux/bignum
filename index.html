@@ -292,17 +292,21 @@
   }
 
   // ---- Calculator state ----
+  // Flag semantics:
+  //   replaceOnNextDigit = display is showing a "result" (running total after an op,
+  //   or the final result after =). Next digit press REPLACES display rather than appending.
   const state = {
-    display: '0',       // string the user is currently typing (digits, may have leading '-')
-    stored: null,       // BigInt — left operand stashed when an operator was pressed
-    op: null,           // '+' | '-' | '×' | '÷'
-    justEvaluated: false,
+    display: '0',
+    stored: null,                // BigInt left operand, or null
+    op: null,                    // '+' | '−' | '×' | '÷' | null  (button-form minus)
+    replaceOnNextDigit: false,
     error: null
   };
 
   const digitsEl = document.getElementById('digits');
   const wordsBody = document.getElementById('words-body');
   const pendingEl = document.getElementById('pending');
+  const opButtons = document.querySelectorAll('.pad .op');
 
   function currentBigInt() {
     if (state.display === '' || state.display === '-') return 0n;
@@ -315,12 +319,12 @@
       digitsEl.className = 'digits error';
       wordsBody.textContent = '—';
       pendingEl.textContent = '';
+      opButtons.forEach(b => b.classList.remove('armed'));
       return;
     }
     const big = currentBigInt();
     const formatted = formatDigits(big);
     digitsEl.textContent = formatted;
-    // dynamic font-size shrink
     let cls = 'digits';
     const len = formatted.length;
     if (len > 80) cls += ' shrink-4';
@@ -331,66 +335,64 @@
 
     wordsBody.textContent = bigIntToWords(big);
 
-    if (state.op && state.stored !== null && !state.justEvaluated) {
+    if (state.op && state.stored !== null) {
       pendingEl.textContent = formatDigits(state.stored) + ' ' + state.op;
     } else {
       pendingEl.textContent = '';
     }
+    opButtons.forEach(b => b.classList.toggle('armed', b.dataset.op === state.op));
   }
 
   function inputDigit(d) {
     if (state.error) clearAll();
-    if (state.justEvaluated) {
-      // Start fresh after an =
+    if (state.replaceOnNextDigit) {
       state.display = d;
-      state.justEvaluated = false;
-      state.stored = null;
-      state.op = null;
+      state.replaceOnNextDigit = false;
+    } else if (state.display === '0') {
+      state.display = d;
+    } else if (state.display === '-0') {
+      state.display = '-' + d;
     } else {
-      if (state.display === '0') state.display = d;
-      else if (state.display === '-0') state.display = '-' + d;
-      else state.display += d;
+      state.display += d;
     }
     render();
   }
 
   function inputOp(op) {
     if (state.error) return;
-    // Normalize minus
-    const normalized = op === '−' ? '-' : op;
-    if (state.op && state.stored !== null && !state.justEvaluated) {
-      // Chain: evaluate first
+    // op is always in button form: '+', '−', '×', '÷'
+    if (state.op && state.stored !== null && !state.replaceOnNextDigit) {
+      // We have a fresh right operand → chain-evaluate first
       const ok = evaluate();
       if (!ok) return;
-    } else {
-      state.stored = currentBigInt();
+      // evaluate() leaves display=result, stored=null, op=null, replaceOnNextDigit=true
     }
-    state.op = normalized;
-    state.justEvaluated = false;
-    state.display = '0';
-    // Hack: keep justEvaluated-like behavior — next digit replaces "0"
-    // Done naturally because display is '0'.
+    // Stash current display as the left operand for the new op.
+    // If the user is just swapping operators (e.g., pressed + then ×), this just rewrites op.
+    state.stored = currentBigInt();
+    state.op = op;
+    state.replaceOnNextDigit = true;
     render();
   }
 
   function evaluate() {
     if (state.op === null || state.stored === null) {
-      state.justEvaluated = true;
+      state.replaceOnNextDigit = true;
       render();
       return true;
     }
     const a = state.stored;
-    const b = currentBigInt();
+    // If user hits = right after an op (no new right operand typed), repeat the left operand: 4+= → 8
+    const b = state.replaceOnNextDigit ? state.stored : currentBigInt();
     let result;
     try {
       switch (state.op) {
         case '+': result = a + b; break;
-        case '-': result = a - b; break;
+        case '−': result = a - b; break;
         case '×': result = a * b; break;
         case '÷':
           if (b === 0n) { state.error = "can't ÷ by zero"; render(); return false; }
-          // floor division toward negative infinity? BigInt / truncates toward zero. Use truncation for calculator standard.
-          result = a / b;
+          result = a / b; // BigInt truncating division
           break;
         default: return false;
       }
@@ -402,7 +404,7 @@
     state.display = result.toString();
     state.stored = null;
     state.op = null;
-    state.justEvaluated = true;
+    state.replaceOnNextDigit = true;
     render();
     return true;
   }
@@ -411,14 +413,20 @@
     state.display = '0';
     state.stored = null;
     state.op = null;
-    state.justEvaluated = false;
+    state.replaceOnNextDigit = false;
     state.error = null;
     render();
   }
 
   function backspace() {
     if (state.error) { clearAll(); return; }
-    if (state.justEvaluated) { clearAll(); return; }
+    if (state.replaceOnNextDigit) {
+      // Showing a result — backspace wipes it back to fresh entry but keeps any pending op
+      state.display = '0';
+      state.replaceOnNextDigit = false;
+      render();
+      return;
+    }
     if (state.display.length <= 1 || (state.display.length === 2 && state.display.startsWith('-'))) {
       state.display = '0';
     } else {
@@ -432,7 +440,7 @@
     if (state.display === '0') return;
     if (state.display.startsWith('-')) state.display = state.display.slice(1);
     else state.display = '-' + state.display;
-    state.justEvaluated = false;
+    state.replaceOnNextDigit = false;
     render();
   }
 

@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#0b0d10">
+  <title>Bignum</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: #14181d;
+      --panel-2: #1b2026;
+      --line: #262c33;
+      --text: #e7ecf1;
+      --muted: #8a93a0;
+      --accent: #ffb84d;
+      --accent-2: #ffd58a;
+      --op: #4a8fff;
+      --op-active: #6aa7ff;
+      --eq: #4ade80;
+      --danger: #f87171;
+      --tap: rgba(255,184,77,0.18);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-top: env(safe-area-inset-top, 0px);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: var(--tap); -webkit-user-select: none; user-select: none; }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+    body { display: flex; flex-direction: column; padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); }
+
+    header {
+      padding: 8px 16px 4px;
+      display: flex; justify-content: space-between; align-items: baseline;
+      flex: 0 0 auto;
+    }
+    header h1 { font-size: 18px; margin: 0; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
+    header .sub { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+
+    .display {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex; flex-direction: column;
+      padding: 8px 16px 12px;
+      overflow: hidden;
+    }
+
+    .digits {
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+      font-size: clamp(36px, 11vw, 72px);
+      line-height: 1.05;
+      text-align: right;
+      word-break: break-all;
+      color: var(--text);
+      letter-spacing: -0.5px;
+      flex: 0 0 auto;
+      max-height: 40%;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      padding: 4px 0;
+    }
+    .digits.error { color: var(--danger); font-size: clamp(24px, 6vw, 40px); }
+    .digits.shrink-1 { font-size: clamp(28px, 8vw, 56px); }
+    .digits.shrink-2 { font-size: clamp(22px, 6vw, 42px); }
+    .digits.shrink-3 { font-size: clamp(18px, 5vw, 32px); }
+    .digits.shrink-4 { font-size: clamp(15px, 4vw, 26px); }
+
+    .pending {
+      font-size: 14px; color: var(--muted);
+      text-align: right; min-height: 18px;
+      font-variant-numeric: tabular-nums;
+      padding: 2px 0;
+      flex: 0 0 auto;
+    }
+
+    .words {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      font-size: clamp(15px, 3.5vw, 20px);
+      line-height: 1.45;
+      color: var(--accent-2);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-top: 8px;
+      word-break: break-word;
+      -webkit-user-select: text; user-select: text;
+    }
+    .words::-webkit-scrollbar { width: 6px; }
+    .words::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+    .words .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; display: block; margin-bottom: 6px; }
+
+    .pad {
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      padding: 8px 12px 12px;
+    }
+    .pad button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: clamp(20px, 5vw, 28px);
+      font-weight: 600;
+      border-radius: 14px;
+      padding: 14px 0;
+      cursor: pointer;
+      transition: transform 0.05s ease, background 0.1s ease;
+      font-family: inherit;
+      min-height: 56px;
+      touch-action: manipulation;
+    }
+    .pad button:active { transform: scale(0.96); background: var(--panel-2); }
+    .pad .op { background: var(--op); color: #0a1530; border-color: var(--op); font-weight: 700; }
+    .pad .op:active, .pad .op.armed { background: var(--op-active); }
+    .pad .util { background: var(--panel-2); color: var(--accent); }
+    .pad .ac { color: var(--danger); }
+    .pad .eq { background: var(--eq); color: #062b14; border-color: var(--eq); font-weight: 800; }
+    .pad .wide { grid-column: span 2; }
+
+    @media (min-height: 700px) {
+      .pad button { padding: 18px 0; min-height: 64px; }
+    }
+    @media (max-height: 560px) {
+      .pad { gap: 6px; padding: 6px 10px 8px; }
+      .pad button { padding: 10px 0; min-height: 44px; font-size: 18px; }
+      .words { padding: 8px 12px; }
+      header { padding: 4px 16px 2px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>BIGNUM</h1>
+    <span class="sub" id="cap-note">up to centillion</span>
+  </header>
+
+  <div class="display">
+    <div class="pending" id="pending"></div>
+    <div class="digits" id="digits">0</div>
+    <div class="words" id="words"><span class="label">In words</span><span id="words-body">zero</span></div>
+  </div>
+
+  <div class="pad">
+    <button class="util ac" data-action="clear">AC</button>
+    <button class="util" data-action="negate">±</button>
+    <button class="util" data-action="back">⌫</button>
+    <button class="op" data-op="÷">÷</button>
+
+    <button data-digit="7">7</button>
+    <button data-digit="8">8</button>
+    <button data-digit="9">9</button>
+    <button class="op" data-op="×">×</button>
+
+    <button data-digit="4">4</button>
+    <button data-digit="5">5</button>
+    <button data-digit="6">6</button>
+    <button class="op" data-op="−">−</button>
+
+    <button data-digit="1">1</button>
+    <button data-digit="2">2</button>
+    <button data-digit="3">3</button>
+    <button class="op" data-op="+">+</button>
+
+    <button class="wide" data-digit="0">0</button>
+    <button class="eq wide" data-action="equals">=</button>
+  </div>
+
+<script>
+(() => {
+  // ---- Number-to-words ----
+  const ONES = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+                'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+                'seventeen', 'eighteen', 'nineteen'];
+  const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+  // Small "illion" names — well-known, dictionary-standard spellings.
+  const SMALL_ILLIONS = [
+    'thousand', 'million', 'billion', 'trillion', 'quadrillion', 'quintillion',
+    'sextillion', 'septillion', 'octillion', 'nonillion',
+    'decillion', 'undecillion', 'duodecillion', 'tredecillion', 'quattuordecillion',
+    'quindecillion', 'sexdecillion', 'septendecillion', 'octodecillion', 'novemdecillion',
+    'vigintillion'
+  ];
+
+  // Conway-Wechsler generator for 21..100
+  const CW_UNITS = ['', 'un', 'duo', 'tre', 'quattuor', 'quin', 'se', 'septe', 'octo', 'nove'];
+  const CW_TENS  = ['', 'deci', 'viginti', 'triginta', 'quadraginta', 'quinquaginta',
+                    'sexaginta', 'septuaginta', 'octoginta', 'nonaginta'];
+
+  function illionByIndex(n) {
+    // n is the "thousand-power index": 0 = thousand, 1 = million, ..., 100 = centillion
+    if (n < 0) return '';
+    if (n <= 20) return SMALL_ILLIONS[n];
+    if (n === 100) return 'centillion';
+    if (n > 100) return null; // out of range
+    // n in [21, 99]
+    const u = n % 10;
+    const t = Math.floor(n / 10);
+    let unit = CW_UNITS[u];
+    const tens = CW_TENS[t];
+    const nextLetter = tens[0];
+    if (u === 3) {
+      if ('sx'.includes(nextLetter)) unit = 'tres';
+    } else if (u === 6) {
+      if ('ct'.includes(nextLetter)) unit = 'ses';
+      else if ('no'.includes(nextLetter)) unit = 'sex';
+    } else if (u === 7 || u === 9) {
+      if ('cdqst'.includes(nextLetter)) unit += 'n';
+      else if ('bvl'.includes(nextLetter)) unit += 'm';
+    }
+    return (unit + tens).replace(/[aeiou]$/, '') + 'illion';
+  }
+
+  function threeDigitWords(n) {
+    // n: 0..999
+    if (n === 0) return '';
+    let out = '';
+    const h = Math.floor(n / 100);
+    const rest = n % 100;
+    if (h > 0) {
+      out = ONES[h] + ' hundred';
+      if (rest > 0) out += ' ';
+    }
+    if (rest > 0) {
+      if (rest < 20) {
+        out += ONES[rest];
+      } else {
+        const t = Math.floor(rest / 10);
+        const u = rest % 10;
+        out += TENS[t];
+        if (u > 0) out += '-' + ONES[u];
+      }
+    }
+    return out;
+  }
+
+  function bigIntToWords(value) {
+    if (value === 0n) return 'zero';
+    let negative = false;
+    let n = value;
+    if (n < 0n) { negative = true; n = -n; }
+    const s = n.toString();
+    // split into 3-digit groups from the right
+    const groups = [];
+    for (let i = s.length; i > 0; i -= 3) {
+      groups.unshift(s.slice(Math.max(0, i - 3), i));
+    }
+    // Highest group can name up to illionByIndex(groups.length - 2). Cap at centillion (100).
+    if (groups.length - 2 > 100) {
+      // Beyond centillion — fall back to scientific
+      const digits = s.length;
+      return `roughly ${s[0]}${s.length > 1 ? '.' + s.slice(1, 4) : ''} × 10^${digits - 1} — past centillion, no standard name`;
+    }
+    const parts = [];
+    for (let i = 0; i < groups.length; i++) {
+      const v = parseInt(groups[i], 10);
+      if (v === 0) continue;
+      const power = groups.length - 1 - i; // 0 = ones, 1 = thousands, 2 = millions ...
+      const words = threeDigitWords(v);
+      let suffix = '';
+      if (power === 0) {
+        suffix = '';
+      } else {
+        const name = illionByIndex(power - 1);
+        suffix = ' ' + name;
+      }
+      parts.push(words + suffix);
+    }
+    let result = parts.join(', ');
+    if (negative) result = 'negative ' + result;
+    return result;
+  }
+
+  // ---- Display formatting ----
+  function formatDigits(value) {
+    // value: BigInt
+    const negative = value < 0n;
+    const s = (negative ? -value : value).toString();
+    // insert commas every 3 from the right
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 === 0) out += ',';
+      out += s[i];
+    }
+    return negative ? '-' + out : out;
+  }
+
+  // ---- Calculator state ----
+  const state = {
+    display: '0',       // string the user is currently typing (digits, may have leading '-')
+    stored: null,       // BigInt — left operand stashed when an operator was pressed
+    op: null,           // '+' | '-' | '×' | '÷'
+    justEvaluated: false,
+    error: null
+  };
+
+  const digitsEl = document.getElementById('digits');
+  const wordsBody = document.getElementById('words-body');
+  const pendingEl = document.getElementById('pending');
+
+  function currentBigInt() {
+    if (state.display === '' || state.display === '-') return 0n;
+    return BigInt(state.display);
+  }
+
+  function render() {
+    if (state.error) {
+      digitsEl.textContent = state.error;
+      digitsEl.className = 'digits error';
+      wordsBody.textContent = '—';
+      pendingEl.textContent = '';
+      return;
+    }
+    const big = currentBigInt();
+    const formatted = formatDigits(big);
+    digitsEl.textContent = formatted;
+    // dynamic font-size shrink
+    let cls = 'digits';
+    const len = formatted.length;
+    if (len > 80) cls += ' shrink-4';
+    else if (len > 50) cls += ' shrink-3';
+    else if (len > 30) cls += ' shrink-2';
+    else if (len > 18) cls += ' shrink-1';
+    digitsEl.className = cls;
+
+    wordsBody.textContent = bigIntToWords(big);
+
+    if (state.op && state.stored !== null && !state.justEvaluated) {
+      pendingEl.textContent = formatDigits(state.stored) + ' ' + state.op;
+    } else {
+      pendingEl.textContent = '';
+    }
+  }
+
+  function inputDigit(d) {
+    if (state.error) clearAll();
+    if (state.justEvaluated) {
+      // Start fresh after an =
+      state.display = d;
+      state.justEvaluated = false;
+      state.stored = null;
+      state.op = null;
+    } else {
+      if (state.display === '0') state.display = d;
+      else if (state.display === '-0') state.display = '-' + d;
+      else state.display += d;
+    }
+    render();
+  }
+
+  function inputOp(op) {
+    if (state.error) return;
+    // Normalize minus
+    const normalized = op === '−' ? '-' : op;
+    if (state.op && state.stored !== null && !state.justEvaluated) {
+      // Chain: evaluate first
+      const ok = evaluate();
+      if (!ok) return;
+    } else {
+      state.stored = currentBigInt();
+    }
+    state.op = normalized;
+    state.justEvaluated = false;
+    state.display = '0';
+    // Hack: keep justEvaluated-like behavior — next digit replaces "0"
+    // Done naturally because display is '0'.
+    render();
+  }
+
+  function evaluate() {
+    if (state.op === null || state.stored === null) {
+      state.justEvaluated = true;
+      render();
+      return true;
+    }
+    const a = state.stored;
+    const b = currentBigInt();
+    let result;
+    try {
+      switch (state.op) {
+        case '+': result = a + b; break;
+        case '-': result = a - b; break;
+        case '×': result = a * b; break;
+        case '÷':
+          if (b === 0n) { state.error = "can't ÷ by zero"; render(); return false; }
+          // floor division toward negative infinity? BigInt / truncates toward zero. Use truncation for calculator standard.
+          result = a / b;
+          break;
+        default: return false;
+      }
+    } catch (e) {
+      state.error = 'error';
+      render();
+      return false;
+    }
+    state.display = result.toString();
+    state.stored = null;
+    state.op = null;
+    state.justEvaluated = true;
+    render();
+    return true;
+  }
+
+  function clearAll() {
+    state.display = '0';
+    state.stored = null;
+    state.op = null;
+    state.justEvaluated = false;
+    state.error = null;
+    render();
+  }
+
+  function backspace() {
+    if (state.error) { clearAll(); return; }
+    if (state.justEvaluated) { clearAll(); return; }
+    if (state.display.length <= 1 || (state.display.length === 2 && state.display.startsWith('-'))) {
+      state.display = '0';
+    } else {
+      state.display = state.display.slice(0, -1);
+    }
+    render();
+  }
+
+  function negate() {
+    if (state.error) return;
+    if (state.display === '0') return;
+    if (state.display.startsWith('-')) state.display = state.display.slice(1);
+    else state.display = '-' + state.display;
+    state.justEvaluated = false;
+    render();
+  }
+
+  // ---- Wire up buttons ----
+  document.querySelector('.pad').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.digit !== undefined) {
+      inputDigit(btn.dataset.digit);
+    } else if (btn.dataset.op) {
+      inputOp(btn.dataset.op);
+    } else if (btn.dataset.action) {
+      switch (btn.dataset.action) {
+        case 'clear': clearAll(); break;
+        case 'back': backspace(); break;
+        case 'negate': negate(); break;
+        case 'equals': evaluate(); break;
+      }
+    }
+  });
+
+  // Keyboard support
+  document.addEventListener('keydown', (e) => {
+    if (e.key >= '0' && e.key <= '9') inputDigit(e.key);
+    else if (e.key === '+') inputOp('+');
+    else if (e.key === '-') inputOp('−');
+    else if (e.key === '*' || e.key === 'x' || e.key === 'X') inputOp('×');
+    else if (e.key === '/') { e.preventDefault(); inputOp('÷'); }
+    else if (e.key === 'Enter' || e.key === '=') evaluate();
+    else if (e.key === 'Backspace') backspace();
+    else if (e.key === 'Escape' || e.key === 'c' || e.key === 'C') clearAll();
+  });
+
+  render();
+
+  // PWA
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+})();
+</script>
+</body>
+</html>

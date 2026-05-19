@@ -31,11 +31,47 @@
 
     header {
       padding: 8px 16px 4px;
-      display: flex; justify-content: space-between; align-items: baseline;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 8px;
       flex: 0 0 auto;
     }
     header h1 { font-size: 18px; margin: 0; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
-    header .sub { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+    header .sub { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-right: auto; margin-left: 12px; }
+
+    #install-btn {
+      appearance: none; cursor: pointer;
+      background: var(--panel-2); color: var(--accent);
+      border: 1px solid var(--accent); border-radius: 999px;
+      padding: 6px 12px; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.5px; font-family: inherit;
+      display: inline-flex; align-items: center; gap: 4px;
+      touch-action: manipulation;
+    }
+    #install-btn:active { transform: scale(0.95); background: var(--accent); color: #1a0f08; }
+    #install-btn[hidden] { display: none; }
+
+    .install-help {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.7);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .install-help[hidden] { display: none; }
+    .install-help .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 16px; max-width: 380px; width: 100%;
+      padding: 20px;
+      -webkit-user-select: text; user-select: text;
+    }
+    .install-help h2 { margin: 0 0 8px; font-size: 18px; color: var(--accent); }
+    .install-help p { margin: 8px 0; font-size: 14px; line-height: 1.5; color: var(--text); }
+    .install-help .step { background: var(--panel-2); padding: 8px 10px; border-radius: 8px; margin: 6px 0; font-size: 13px; color: var(--accent-2); }
+    .install-help button {
+      appearance: none; cursor: pointer; font-family: inherit;
+      background: var(--accent); color: #1a0f08; border: none;
+      border-radius: 10px; padding: 10px 16px; font-size: 14px; font-weight: 700;
+      margin-top: 8px; width: 100%;
+    }
 
     .display {
       flex: 1 1 auto;
@@ -145,7 +181,16 @@
   <header>
     <h1>BIGNUM</h1>
     <span class="sub" id="cap-note">up to centillion</span>
+    <button id="install-btn" hidden>+ Install</button>
   </header>
+
+  <div class="install-help" id="install-help" hidden>
+    <div class="card">
+      <h2>Install Bignum</h2>
+      <p id="install-help-body">Use your browser's install option to add Bignum to your desktop or home screen.</p>
+      <button id="install-help-close">Got it</button>
+    </div>
+  </div>
 
   <div class="display">
     <div class="pending" id="pending"></div>
@@ -511,12 +556,86 @@
 
   render();
 
-  // PWA
+  // ---- PWA install ----
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js').catch(() => {});
     });
   }
+
+  const installBtn = document.getElementById('install-btn');
+  const installHelp = document.getElementById('install-help');
+  const installHelpBody = document.getElementById('install-help-body');
+  document.getElementById('install-help-close').addEventListener('click', () => {
+    installHelp.hidden = true;
+  });
+  installHelp.addEventListener('click', (e) => {
+    if (e.target === installHelp) installHelp.hidden = true; // backdrop click
+  });
+
+  let deferredInstallPrompt = null;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+
+  if (!isStandalone) {
+    installBtn.hidden = false; // show by default; click will prompt or instruct
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    installBtn.hidden = false;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.hidden = true;
+    deferredInstallPrompt = null;
+  });
+
+  function platformInstructions() {
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+    const isAndroid = /Android/.test(ua);
+    const isMac = /Mac/.test(ua) && !isIOS;
+    const isFirefox = /Firefox/.test(ua);
+
+    if (isIOS) {
+      return `<p>On iPhone/iPad Safari:</p>
+        <div class="step">1. Tap the <strong>Share</strong> button (square with up-arrow) at the bottom of the screen.</div>
+        <div class="step">2. Scroll down and tap <strong>Add to Home Screen</strong>.</div>
+        <div class="step">3. Tap <strong>Add</strong>. Bignum will appear on your home screen like any app.</div>`;
+    }
+    if (isAndroid) {
+      return `<p>On Android Chrome:</p>
+        <div class="step">1. Tap the <strong>⋮</strong> menu in the top-right of Chrome.</div>
+        <div class="step">2. Tap <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</div>
+        <div class="step">3. Confirm. Bignum will launch from your home screen as its own app.</div>`;
+    }
+    if (isFirefox) {
+      return `<p>Firefox doesn't currently support installable web apps on desktop. To get a one-click desktop shortcut:</p>
+        <div class="step">Bookmark this page, or use Chrome/Edge/Safari and look for an install option in the URL bar.</div>`;
+    }
+    // Chrome/Edge/Brave desktop fallback (when prompt didn't fire — usually engagement-heuristic gating)
+    return `<p>To install Bignum as a desktop app:</p>
+        <div class="step">1. Look for the <strong>install icon</strong> (a small monitor/computer icon, or "+") in the right side of the address bar.</div>
+        <div class="step">2. Or open the browser menu (⋮ or ···) and pick <strong>Install Bignum</strong> / <strong>Apps → Install this site as an app</strong>.</div>
+        <div class="step">3. Confirm. Bignum will appear in your Start Menu / Applications and launch in its own window.</div>
+        ${isMac ? '<p style="font-size:12px;color:var(--muted);margin-top:10px">On Safari: File → Add to Dock.</p>' : ''}`;
+  }
+
+  installBtn.addEventListener('click', async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      if (choice && choice.outcome === 'accepted') {
+        installBtn.hidden = true;
+      }
+    } else {
+      installHelpBody.innerHTML = platformInstructions();
+      installHelp.hidden = false;
+    }
+  });
 })();
 </script>
 </body>
